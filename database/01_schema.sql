@@ -3,36 +3,34 @@ CREATE DATABASE db;
 USE db;
 
 CREATE TABLE IF NOT EXISTS Task (
-    TaskID INT AUTO_INCREMENT,
+    TaskID INT AUTO_INCREMENT PRIMARY KEY,
     Title VARCHAR(50) NOT NULL,
-    Description VARCHAR(255),
-    Priority VARCHAR(10),
-    DueDate TIMESTAMP,
-    CreationTime TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-    UpdateTime TIMESTAMP DEFAULT NULL,
+    TaskDescription VARCHAR(255),
+    TaskPriority INT DEFAULT 0,
+    DueDate TIMESTAMP DEFAULT NULL,
+    CreationTime TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UpdateTime TIMESTAMP DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
     ParentTaskID INT DEFAULT NULL,
-    StatusID INT,
-    MilestoneID INT,
+    StatusID INT DEFAULT NULL,
+    MilestoneID INT DEFAULT NULL,
     ReporterID INT,
-    AssigneeID INT NOT NULL,
+    AssigneeID INT DEFAULT NULL,
     BoardID INT,
 
-    PRIMARY KEY(TaskID)
-    FOREIGN KEY(ParentTaskID) REFERENCES Task(TaskID),
-    FOREIGN KEY(StatusID) REFERENCES Status(StatusID),
+    FOREIGN KEY(ParentTaskID) REFERENCES Task(TaskID),  -- trigger to check the level of the task, if parent task is epic, then the child task can be story or bug, if parent task is story, then the child task can only be subtask, if parent task is bug, then it cannot have child task
+    FOREIGN KEY(StatusID) REFERENCES TaskStatus(StatusID),
     FOREIGN KEY(MileStoneID) REFERENCES Milestone(MilestoneID),
-    FOREIGN KEY(ReporterID) REFERENCES Profile(ProfileID),
-    FOREIGN KEY(AssigneeID) REFERENCES Profile(ProfileID),
+    FOREIGN KEY(ReporterID) REFERENCES UserProfile(ProfileID),
+    FOREIGN KEY(AssigneeID) REFERENCES UserProfile(ProfileID),
     FOREIGN KEY(BoardID) REFERENCES Board(BoardID),
 );
 
 CREATE TABLE IF NOT EXISTS Story (
     TaskID INT,
-    StoryPoint INT,
+    StoryPoint INT DEFAULT 0,
 
     FOREIGN KEY(TaskID) REFERENCES Task(TaskID),
     PRIMARY KEY(TaskID)
-
 );
 
 CREATE TABLE IF NOT EXISTS Bug (
@@ -45,27 +43,228 @@ CREATE TABLE IF NOT EXISTS Bug (
 
 CREATE TABLE IF NOT EXISTS Epic  (
     TaskID INT PRIMARY KEY,
-    Goal VARCHAR NOT NULL
+    Goal VARCHAR(255) NOT NULL,
 
     FOREIGN KEY(TaskID) REFERENCES Task(TaskID),
     PRIMARY KEY(TaskID)
 );
 
 CREATE TABLE IF NOT EXISTS LinkedItem (
-    TaskID INT,
-    LinkedItem VARCHAR(2048) NOT NULL
-    PRIMARY KEY (TaskID, LinkedItem)
+    TaskID INT NOT NULL,
+    LinkedItem VARCHAR(2048) NOT NULL,
 
-    FOREIGN KEY(TaskID) REFERENCES Task(TaskID),
-    PRIMARY KEY(TaskID)
+    PRIMARY KEY (TaskID, LinkedItem),
+    FOREIGN KEY(TaskID) REFERENCES Task(TaskID)
 );
 """ vấn đề phát sinh: status của milestone và status của task"""
 CREATE TABLE IF NOT EXISTS Milestone(
     MilestoneID INT AUTO_INCREMENT PRIMARY KEY,
-    MilestoneName VARCHAR(50),
-    MilestoneStatus VARCHAR(15),
+    MilestoneName VARCHAR(50)  -- Semantic Defaulting
+    MilestoneStatus VARCHAR(15), -- Semantic Status.
     MilestoneGoal VARCHAR(255),
-    StartDate DATE,
-    EndDate DATE
-
+    StartDate DATE DEFAULT NULL,
+    EndDate DATE DEFAULT NULL
 );
+CREATE TABLE IF NOT EXISTS UserProfile (
+    ProfileID INT AUTO_INCREMENT PRIMARY KEY,
+    FirstName VARCHAR(50) NOT NULL,
+    LastName VARCHAR(50) NOT NULL,
+    Email VARCHAR(100) NOT NULL UNIQUE,
+    AccountStatus VARCHAR(15) NOT NULL,
+    LastLoginTime TIMESTAMP, -- SYSTEM TRIGGER
+    CreationTime TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    Timezone VARCHAR(50) NOT NULL, 
+    AvatarURL VARCHAR(255), -- SYSTEM GENERATED
+    UserID INT NOT NULL,
+    
+    FOREIGN KEY (UserID) REFERENCES UserAccount(UserID)
+);
+
+
+CREATE TABLE IF NOT EXISTS UserAccount (
+    UserID INT PRIMARY KEY,
+    Email VARCHAR(255) NOT NULL UNIQUE,
+    PasswordHash VARCHAR(255) NOT NULL, -- SYSTEM trigger
+    Username VARCHAR(50) NOT NULL UNIQUE 
+);
+
+
+CREATE TABLE IF NOT EXISTS PhoneNumber(
+    ProfileID INT NOT NULL,
+    CountryCode VARCHAR(5) NOT NULL,
+    PhoneNumber VARCHAR(20) NOT NULL, 
+    PRIMARY KEY (ProfileID, CountryCode ,PhoneNumber),
+    FOREIGN KEY (ProfileID) REFERENCES UserProfile(ProfileID)
+);
+
+CREATE TABLE IF NOT EXISTS Organization(
+    OrgID INT AUTO_INCREMENT PRIMARY KEY,
+    OrgName VARCHAR(100),
+    CreationTime TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    OrgDescription VARCHAR(255)
+);
+
+CREATE TABLE IF NOT EXISTS Workflow (
+    WorkflowID INT AUTO_INCREMENT PRIMARY KEY,
+    WorkflowName VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS TaskStatus (
+    StatusID INT AUTO_INCREMENT INT PRIMARY KEY,
+    StatusName VARCHAR(50) NOT NULL,
+    WorkflowID INT NOT NULL,
+    -- STATUS CATEGORY
+    -- DISPLAY ORDER 
+    FOREIGN KEY (WorkflowID) REFERENCES Workflow(WorkflowID)
+);
+
+CREATE TABLE IF NOT EXISTS Project (
+    ProjectID INT AUTO_INCREMENT PRIMARY KEY,
+    ProjectName VARCHAR(50) NOT NULL,
+    -- ProjectCode VARCHAR(20) NOT NULL UNIQUE,
+    ProjectDescription VARCHAR(255),
+    ProjectStatus VARCHAR(20) NOT NULL,
+    CreationTime TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FinishedTime TIMESTAMP DEFAULT NULL,
+    OrgID INT NOT NULL,
+    WorkflowID INT NOT NULL,
+    FOREIGN KEY (OrgID) REFERENCES Organization(OrgID),
+    FOREIGN KEY (WorkflowID) REFERENCES Workflow(WorkflowID)
+); 
+
+------ stopp there to check actor
+CREATE TABLE IF NOT EXISTS Board (
+    BoardID INT AUTO_INCREMENT PRIMARY KEY,
+    BoardName VARCHAR(50) NOT NULL,
+    BoardType VARCHAR(50) NOT NULL,
+    CreationTime TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CreatorID INT NOT NULL, -- Trigger 
+    ProjectID INT NOT NULL,
+
+    FOREIGN KEY (CreatorID) REFERENCES UserProfile(ProfileID),
+    FOREIGN KEY (ProjectID) REFERENCES Project(ProjectID)
+);
+
+CREATE TABLE IF NOT EXISTS Notify(
+    NotificationID INT AUTO_INCREMENT PRIMARY KEY,
+    NotiDescription VARCHAR(255) NOT NULL,
+    CommentID INT NOT NULL,
+    TaskID INT NOT NULL,
+
+    FOREIGN KEY (CommentID) REFERENCES Comment(CommentID),
+    FOREIGN KEY (TaskID) REFERENCES Task(TaskID)
+);
+
+
+CREATE TABLE IF NOT EXISTS Comment (
+    CommentID INT AUTO_INCREMENT PRIMARY KEY,
+    CommentContent VARCHAR(255) NOT NULL,
+    -- CreationTime TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    
+    AuthorID INT NOT NULL,
+    TaskID INT NOT NULL,
+
+    FOREIGN KEY (AuthorID) REFERENCES UserProfile(ProfileID),
+    FOREIGN KEY (TaskID) REFERENCES Task(TaskID)
+);
+
+CREATE TABLE IF NOT EXISTS  NotificationReceive(
+    ProfileID int NOT NULL,
+    NotificationID int NOT NULL,
+    SentTime TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ProfileID, NotificationID),
+    FOREIGN KEY (ProfileID) REFERENCES UserProfile(ProfileID),
+    FOREIGN KEY (NotificationID) REFERENCES Notify(NotificationID)
+);
+
+
+CREATE TABLE IF NOT EXISTS Permission (
+    PermissionID INT AUTO_INCREMENT PRIMARY KEY,
+    ResourceType VARCHAR(25) NOT NULL,
+    ActionCode VARCHAR(25) NOT NULL,
+    Scope VARCHAR(25) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ProjectRole (
+    RoleID INT AUTO_INCREMENT PRIMARY KEY,
+    RoleDescription VARCHAR(255) NOT NULL,
+    RoleName VARCHAR(50) NOT NULL
+    OrgID INT NOT NULL,
+    FOREIGN KEY (OrgID) REFERENCES Organization(OrgID)
+);
+
+CREATE TABLE IF NOT EXISTS RolePermission(
+    RoleID INT NOT NULL,
+    PermissionID INT NOT NULL,
+
+    PRIMARY KEY (RoleID, PermissionID),
+    FOREIGN KEY (RoleID) REFERENCES ProjectRole(RoleID),
+    FOREIGN KEY (PermissionID) REFERENCES Permission(PermissionID)
+);
+
+CREATE TABLE IF NOT EXISTS ProjectRoleActor (
+    ProjectRoleActorID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    RoleID INT NOT NULL,
+    ProfileID INT NOT NULL,
+    Roleid INT NOT NULL,
+    FOREIGN KEY (RoleID) REFERENCES ProjectRole(RoleID),
+    FOREIGN KEY (ProfileID) REFERENCES UserProfile(ProfileID)
+);
+-- trigger to check the authority of the user when performing action, 
+-- and also to log the action into activity log
+-- = private + automatically generated, not allow to insert or update directly
+CREATE TABLE IF NOT EXISTS ActivityLog (
+    LogID INT AUTO_INCREMENT PRIMARY KEY,
+    ActionDetail VARCHAR(255) NOT NULL, 
+    -- e.g. "User A created a task", "User B updated a task", "User C commented on a task"  
+    ActionCode VARCHAR(50) NOT NULL,
+    ActionTime TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    ProfileID INT NOT NULL, ---> projecrt role actor
+    -- activy = profileID + (projectroleactor + project role + permission)
+    -- --> result = trigger check authority + log action
+    
+    TaskID INT NOT NULL,
+    FOREIGN KEY (ProfileID) REFERENCES UserProfile(ProfileID),
+    FOREIGN KEY (TaskID) REFERENCES Task(TaskID)
+);
+"
+✅ How to verify whether a user can perform an action
+ActivityLog itself should not be the authorization engine. 
+It is an audit trail: it records what happened after your app allowed or denied the action.
+
+Use permissions + roles for authorization
+Your schema already has the right pieces:
+
+Permission stores allowed operations (ResourceType, ActionCode, Scope)
+ProjectRole defines a role
+RolePermission assigns permissions to roles
+ProjectRoleActor assigns roles to users
+Authorization flow
+User requests an action, e.g. Edit Task, Delete Comment
+Application checks:
+which role(s) the user has
+whether that role includes the needed permission
+c
+
+SELECT 1
+FROM ProjectRoleActor pra
+JOIN RolePermission rp ON rp.RoleID = pra.RoleID
+JOIN Permission p ON p.PermissionID = rp.PermissionID
+WHERE pra.ProfileID = ? 
+  AND p.ResourceType = 'Task'
+  AND p.ActionCode = 'Edit'
+LIMIT 1;
+"
+
+"epic và milestone có thể coi là 1 loại task đặc biệt, có thể dùng chung bảng Task để lưu trữ thông tin chung,
+ sau đó tạo bảng riêng để lưu trữ thông tin đặc thù của epic và milestone. nhung ma epic va
+ task khong co khong co nhieu su khac biet nen co the gop chung vao 1 bang Task, va them truong Type de phan biet giua cac loai task
+ epic khong co tac dung  chi de phan loai nen gop chung vao bang Task
+ 
+ one special thing of  epic is that it can have multi task but
+ CANT NOT HAVE SUBEPIC itself so we can keep base on this reason"
+
+"added countrycode in phone number to support phone number standardization, and also added timezone in user profile to support users from different regions"
+
+"Status Catgory removed - cannot determined conceptually, and also can be determined by the workflow design, so it is redundant"
