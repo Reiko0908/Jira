@@ -282,3 +282,95 @@ BEGIN
     WHERE TaskID = p_TaskID;
 END$$
 DELIMITER ;
+
+-- ============================================================
+-- 3. sp_delete_task
+--    Deletes a Task after evaluating business deletion rules.
+--
+--  WHEN DELETION IS ALLOWED:
+--    • The task exists.
+--    • The task has no open (non-closed) child tasks.
+--
+--  WHEN DELETION IS NOT ALLOWED:
+--    • The task does not exist.
+--    • The task still has at least one child task that is not
+--      in a terminal status (i.e. not 'Done' or 'Cancelled').
+--
+--  WHY THE RESTRICTION EXISTS:
+--    Deleting a parent task while children are in-progress
+--    would silently orphan work that is still being tracked.
+--    MySQL's ON DELETE CASCADE would remove those children
+--    from the database, but their associated Comments,
+--    ActivityLogs, and Notifications would cascade-delete too,
+--    destroying audit history.  Forcing the caller to close
+--    or reassign children first preserves data integrity and
+--    gives team members visibility before records disappear.
+--
+--  BUSINESS PURPOSE:
+--    In project management workflows an Epic or Story acts as
+--    a container for ongoing work.  Removing it while child
+--    tasks are active could hide unfinished work from reports
+--    and velocity charts.  This guard ensures a deliberate,
+--    documented close-out before deletion.
+-- ============================================================
+DROP PROCEDURE IF EXISTS sp_delete_task;
+DELIMITER $$
+CREATE PROCEDURE sp_delete_task(
+    IN p_TaskID        INT,
+    IN p_ForceDelete   TINYINT   -- 1 = hard delete even with closed children
+                                 -- 0 = only delete when no active children exist
+)
+BEGIN
+    DECLARE v_exists        TINYINT DEFAULT 0;
+    DECLARE v_open_children INT     DEFAULT 0;
+    DECLARE v_task_title    VARCHAR(50);
+
+    -- ── 1. Task must exist ────────────────────────────────────
+    SELECT COUNT(*), Title
+    INTO   v_exists, v_task_title
+    FROM   Task
+    WHERE  TaskID = p_TaskID;
+
+    IF v_exists = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Deletion failed: the specified task does not exist.';
+    END IF;
+
+    -- ── 2. Count active (non-terminal) child tasks ────────────
+    --   Terminal statuses are those whose StatusName is 'Done' or 'Cancelled'.
+    --   Any child task linked to a non-terminal status blocks deletion.
+    SELECT COUNT(*) INTO v_open_children
+    FROM   Task        t
+    JOIN   TaskStatus  ts ON ts.StatusID = t.StatusID
+    WHERE  t.ParentTaskID = p_TaskID
+      AND  ts.StatusName NOT IN ('Done', 'Cancelled');
+
+    IF v_open_children > 0 AND p_ForceDelete = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Deletion not allowed: this task has child tasks that are still active. Close or reassign all child tasks before deleting the parent.';
+    END IF;
+
+    -- ── 3. Also block if task has open comments that are ──────
+    --      referenced by unread notifications (data-integrity guard)
+    IF EXISTS (
+        SELECT 1
+        FROM   Comment      c
+        JOIN   Notification n  ON n.CommentID = c.CommentID
+        JOIN   NotificationReceive nr ON nr.NotificationID = n.NotificationID
+        WHERE  c.TaskID = p_TaskID
+        LIMIT  1
+    ) AND p_ForceDelete = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Deletion not allowed: this task has unread notifications linked to its comments. Resolve all notifications before deleting.';
+    END IF;
+
+    -- ── All checks passed → DELETE ────────────────────────────
+    -- ON DELETE CASCADE in the schema will automatically remove:
+    --   • Child tasks (and their own cascade chains)
+    --   • Comments on this task
+    --   • Notifications linked to those comments
+    --   • LinkedItems
+    DELETE FROM Task WHERE TaskID = p_TaskID;
+    SELECT CONCAT('Task "', v_task_title, '" (ID: ', p_TaskID, ') has been successfully deleted.') AS Result;
+END$$
+DELIMITER ;
