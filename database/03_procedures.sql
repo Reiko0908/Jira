@@ -188,7 +188,6 @@ BEGIN
     DECLARE v_exists            TINYINT DEFAULT 0;
     DECLARE v_milestone_status  VARCHAR(15);
     DECLARE v_status_workflow   INT;
-    DECLARE v_assignee_status   VARCHAR(15);
 
     -- ── 1. Task must exist ────────────────────────────────────
     SELECT COUNT(*) INTO v_exists FROM Task WHERE TaskID = p_TaskID;
